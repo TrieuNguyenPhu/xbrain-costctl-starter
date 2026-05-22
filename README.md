@@ -279,7 +279,7 @@ Add a `REFLECTIONS.md` to your repo. Sample prompts:
 - [x] Implement ≥ 2 of (`cost`, `terminate`, `tag`) — `terminate` tests green if you pick it
 - [x] (optional stretch) `clean` → `pytest tests/test_clean.py` green; `idle` + `migrate-gp3` also done
 - [x] `make test` final score: **25/25 passing**
-- [ ] Replace `sample_output/*_example.txt` with real outputs from your account
+- [x] Replace `sample_output/*_example.txt` with real outputs from your account
 - [x] `REFLECTIONS.md` with 2+ answers
 - [x] At least 3 meaningful commits (init → first command working → final polish)
 - [x] Replace `g<N>` placeholders throughout README with your real group number
