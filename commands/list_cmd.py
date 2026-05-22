@@ -35,6 +35,7 @@ VERIFY
     pytest tests/test_list.py -v
 """
 import boto3
+from botocore.exceptions import ClientError
 
 from commands._common import parse_kv, tags_to_dict, tags_match
 
@@ -49,7 +50,27 @@ def _list_ec2(want, missing):
     Returns:
         list of (instance_id, instance_type, state, tags_dict) tuples
     """
-    raise NotImplementedError("TODO: implement _list_ec2 — see test_list.py for expected behavior")
+    ec2 = boto3.client("ec2")
+    paginator = ec2.get_paginator("describe_instances")
+
+    rows = []
+    for page in paginator.paginate():
+        for reservation in page["Reservations"]:
+            for instance in reservation["Instances"]:
+                # Bỏ qua các instance đã bị terminated
+                state = instance["State"]["Name"]
+                if state == "terminated":
+                    continue
+
+                tags = tags_to_dict(instance.get("Tags", []))
+                if tags_match(tags, want, missing):
+                    rows.append((
+                        instance["InstanceId"],
+                        instance.get("InstanceType", "unknown"),
+                        state,
+                        tags,
+                    ))
+    return rows
 
 
 def _list_rds(want, missing):
@@ -61,7 +82,25 @@ def _list_rds(want, missing):
     Returns:
         list of (db_id, db_class, db_status, tags_dict) tuples
     """
-    raise NotImplementedError("TODO: implement _list_rds")
+    rds = boto3.client("rds")
+    rows = []
+
+    paginator = rds.get_paginator("describe_db_instances")
+    for page in paginator.paginate():
+        for db in page["DBInstances"]:
+            # Lấy tag bằng cách gọi riêng với ARN
+            arn = db["DBInstanceArn"]
+            tag_list = rds.list_tags_for_resource(ResourceName=arn).get("TagList", [])
+            tags = tags_to_dict(tag_list)
+
+            if tags_match(tags, want, missing):
+                rows.append((
+                    db["DBInstanceIdentifier"],
+                    db.get("DBInstanceClass", "unknown"),
+                    db.get("DBInstanceStatus", "unknown"),
+                    tags,
+                ))
+    return rows
 
 
 def _list_s3(want, missing):
@@ -73,7 +112,24 @@ def _list_s3(want, missing):
     Returns:
         list of (bucket_name, "bucket", "active", tags_dict) tuples
     """
-    raise NotImplementedError("TODO: implement _list_s3")
+    s3 = boto3.client("s3")
+    buckets = s3.list_buckets().get("Buckets", [])
+
+    rows = []
+    for bucket in buckets:
+        name = bucket["Name"]
+
+        # Lấy tag của bucket; bỏ qua lỗi nếu bucket chưa có tag nào
+        try:
+            tag_list = s3.get_bucket_tagging(Bucket=name).get("TagSet", [])
+        except ClientError:
+            tag_list = []
+
+        tags = tags_to_dict(tag_list)
+        if tags_match(tags, want, missing):
+            rows.append((name, "bucket", "active", tags))
+
+    return rows
 
 
 def _list_volume(want, missing):
@@ -83,7 +139,25 @@ def _list_volume(want, missing):
         list of (volume_id, "<type>-<size>GB", state, tags_dict) tuples
         e.g. ("vol-0abc", "gp2-100GB", "in-use", {"purpose": "practice"})
     """
-    raise NotImplementedError("TODO: implement _list_volume")
+    ec2 = boto3.client("ec2")
+    paginator = ec2.get_paginator("describe_volumes")
+
+    rows = []
+    for page in paginator.paginate():
+        for volume in page["Volumes"]:
+            tags = tags_to_dict(volume.get("Tags", []))
+            if tags_match(tags, want, missing):
+                vol_type = volume.get("VolumeType", "unknown")
+                size = volume.get("Size", 0)
+                type_size = f"{vol_type}-{size}GB"
+
+                rows.append((
+                    volume["VolumeId"],
+                    type_size,
+                    volume.get("State", "unknown"),
+                    tags,
+                ))
+    return rows
 
 
 DISPATCH = {
@@ -108,4 +182,26 @@ def run(args):
         args.tag          — list[str], each "key=value"
         args.missing_tag  — list[str], each "key"
     """
-    raise NotImplementedError("TODO: implement run() — see module docstring")
+    # 1. Parse tag filters
+    want = [parse_kv(t) for t in args.tag]
+    missing = list(args.missing_tag)
+
+    # 2. Gọi hàm dispatch phù hợp với resource type
+    rows = DISPATCH[args.type](want, missing)
+
+    # 3. Xây dựng tiêu đề header
+    tag_label = ", ".join(f"{k}={v}" for k, v in want)
+    missing_label = ", ".join(f"!{k}" for k in missing)
+    filters = " ".join(filter(None, [tag_label, missing_label]))
+    header_filter = f" {filters}" if filters else ""
+
+    resource_type = args.type.upper()
+    header = f"{resource_type}{header_filter} — {len(rows)} found:"
+    separator = "-" * 78
+
+    # 4. In kết quả
+    print(header)
+    print(separator)
+    for resource_id, resource_type_info, state, tags in rows:
+        tags_str = ", ".join(f"{k}={v}" for k, v in tags.items())
+        print(f"  {resource_id:<30}  {resource_type_info:<15}  {state:<15}  {tags_str}")
