@@ -1,25 +1,13 @@
-# sample_output/
+# Sample outputs — G2
 
-These files are **illustrative examples** showing the shape of `costctl`
-output. They are NOT real account data.
-
-When you submit, replace each `*_example.txt` with a real output from running
-`costctl` against your workshop account. Then delete the example files.
-
-## How to produce real samples
+Các file này chứa output thực từ tài khoản AWS của nhóm 2.
+Chạy các lệnh sau để tái tạo:
 
 ```bash
-./costctl.py list ec2 > sample_output/list_ec2_$(date +%F).txt
-./costctl.py list ec2 --missing-tag Application > sample_output/list_ec2_missing_app_$(date +%F).txt
-./costctl.py cost --tag Application=<your-app> --days 7 > sample_output/cost_<your-app>_$(date +%F).txt
+./costctl.py list ec2                                      > sample_output/list_ec2.txt
+./costctl.py list ec2 --missing-tag Application            > sample_output/list_ec2_missing_app.txt
+./costctl.py cost --tag Application=HealthBot --days 7     > sample_output/cost.txt
+./costctl.py idle --threshold 5 --hours 24                 > sample_output/idle.txt
+./costctl.py migrate-gp3                                   > sample_output/migrate_gp3_dryrun.txt
+./costctl.py clean --tag purpose=practice                  > sample_output/clean_dryrun.txt
 ```
-
-The trainer will `git clone` your repo, follow the README, and expect to
-reproduce roughly these outputs (allowing for natural drift in timestamps and
-resource lists between snapshots).
-
-## Anti-pattern
-
-Don't paste fabricated output. If `costctl list ec2` against your account
-returns 0 rows, commit that — it's a valid output. Don't invent fake instance
-IDs to make the sample look "interesting".
