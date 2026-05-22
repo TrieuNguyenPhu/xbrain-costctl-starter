@@ -68,8 +68,23 @@ itself works the same anywhere.
 import boto3
 
 # us-east-1 on-demand pricing per GB-month. Override if you care about exact $.
-GP2_PRICE = 0.10
-GP3_PRICE = 0.08
+GP2_PRICE   = 0.10
+GP3_PRICE   = 0.08
+PRICE_DELTA = GP2_PRICE - GP3_PRICE   # $0.02/GB-month
+
+
+def _get_gp2_volumes(ec2, volume_id=None):
+    """Lấy danh sách volume gp2. Nếu volume_id được chỉ định thì chỉ lấy volume đó."""
+    filters = [{"Name": "volume-type", "Values": ["gp2"]}]
+    kwargs  = {"Filters": filters}
+    if volume_id:
+        kwargs["VolumeIds"] = [volume_id]
+
+    paginator = ec2.get_paginator("describe_volumes")
+    volumes   = []
+    for page in paginator.paginate(**kwargs):
+        volumes.extend(page["Volumes"])
+    return volumes
 
 
 def run(args):
@@ -79,4 +94,65 @@ def run(args):
         args.apply       — bool, default False (dry-run)
         args.volume_id   — optional str, only migrate this volume when --apply
     """
-    raise NotImplementedError("TODO: implement migrate-gp3 — see module docstring")
+    ec2 = boto3.client("ec2")
+
+    # Khi --apply + --volume-id thì chỉ migrate volume đó (và vẫn show dry-run cho nó)
+    volumes = _get_gp2_volumes(ec2, volume_id=args.volume_id if args.apply else None)
+
+    # Với dry-run không có --volume-id, lấy toàn bộ gp2
+    if not args.apply:
+        volumes = _get_gp2_volumes(ec2)
+
+    # ── In danh sách / kế hoạch ────────────────────────────────────────────────
+    separator = "-" * 78
+    print(f"gp2 volumes (price delta ${PRICE_DELTA:.3f}/GB-month):")
+    print(separator)
+
+    total_savings = 0.0
+    for vol in volumes:
+        vid       = vol["VolumeId"]
+        size_gb   = vol["Size"]
+        savings   = size_gb * PRICE_DELTA
+
+        # Xác định instance đang gắn (nếu có)
+        attachments = vol.get("Attachments", [])
+        attached_to = attachments[0]["InstanceId"] if attachments else "(none)"
+
+        print(f"  {vid:<25}  {size_gb:>5}GB  attached={attached_to:<22}  "
+              f"${savings:.2f}/mo savings")
+        total_savings += savings
+
+    print(separator)
+
+    if not volumes:
+        print("  (no gp2 volumes found)")
+        return
+
+    print(f"\n  Total potential savings: ${total_savings:.2f}/mo "
+          f"across {len(volumes)} volume(s)")
+
+    # ── Dry-run: dừng lại, không migrate ──────────────────────────────────────
+    if not args.apply:
+        print(f"\n(dry-run — pass --apply --volume-id <id> to migrate one, "
+              f"or --apply to migrate ALL)")
+        return
+
+    # ── Apply: gọi modify_volume cho từng volume ───────────────────────────────
+    print()
+    migrated = 0
+    for vol in volumes:
+        vid = vol["VolumeId"]
+        try:
+            ec2.modify_volume(
+                VolumeId=vid,
+                VolumeType="gp3",
+                Iops=3000,       # baseline gp3, không tính thêm phí
+                Throughput=125,  # MiB/s, baseline gp3
+            )
+            print(f"  → modify_volume issued for {vid} (gp3, 3000 IOPS, 125 MiB/s)")
+            migrated += 1
+        except Exception as e:
+            print(f"  ✗ Failed for {vid}: {e}")
+
+    print(f"\nVolume(s) entering 'modifying' → 'optimizing' state. App stays online.")
+    print(f"Use `./costctl.py list volume` after ~30 minutes to confirm 'in-use' + gp3.")

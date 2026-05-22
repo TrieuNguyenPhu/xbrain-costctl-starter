@@ -43,35 +43,65 @@ USEFUL COMBO
       --set Application=HealthBot
 """
 import boto3
+from botocore.exceptions import ClientError
 
 from commands._common import parse_kv
 
 
 def _to_tags(set_args):
     """Convert ['k1=v1', 'k2=v2'] to [{'Key':'k1','Value':'v1'}, ...]."""
-    raise NotImplementedError("TODO: implement _to_tags using parse_kv")
+    result = []
+    for kv in set_args:
+        k, v = parse_kv(kv)
+        result.append({"Key": k, "Value": v})
+    return result
 
 
 def _tag_ec2(rid, tags):
-    raise NotImplementedError("TODO: implement _tag_ec2 using create_tags")
+    """Tag một EC2 instance bằng create_tags (cũng dùng được cho volume)."""
+    ec2 = boto3.client("ec2")
+    ec2.create_tags(Resources=[rid], Tags=tags)
 
 
 def _tag_rds(rid, tags):
-    raise NotImplementedError("TODO: implement _tag_rds — remember to fetch ARN first")
+    """Tag một RDS DB instance — cần ARN, không phải DB identifier."""
+    rds = boto3.client("rds")
+    # Lấy ARN từ DB identifier
+    arn = rds.describe_db_instances(
+        DBInstanceIdentifier=rid
+    )["DBInstances"][0]["DBInstanceArn"]
+    rds.add_tags_to_resource(ResourceName=arn, Tags=tags)
 
 
 def _tag_s3(rid, tags):
-    raise NotImplementedError("TODO: implement _tag_s3 — MERGE with existing tags, don't replace")
+    """Tag một S3 bucket — MERGE với tag hiện có, không ghi đè toàn bộ."""
+    s3 = boto3.client("s3")
+
+    # Lấy tag hiện có (có thể không có → ClientError)
+    try:
+        existing = s3.get_bucket_tagging(Bucket=rid).get("TagSet", [])
+    except ClientError:
+        existing = []
+
+    # Merge: tag mới đè lên tag cũ nếu cùng key
+    existing_dict = {t["Key"]: t["Value"] for t in existing}
+    for tag in tags:
+        existing_dict[tag["Key"]] = tag["Value"]
+    merged = [{"Key": k, "Value": v} for k, v in existing_dict.items()]
+
+    s3.put_bucket_tagging(Bucket=rid, Tagging={"TagSet": merged})
 
 
 def _tag_volume(rid, tags):
-    raise NotImplementedError("TODO: implement _tag_volume using create_tags")
+    """Tag một EBS volume — dùng cùng API create_tags như EC2."""
+    ec2 = boto3.client("ec2")
+    ec2.create_tags(Resources=[rid], Tags=tags)
 
 
 DISPATCH = {
-    "ec2": _tag_ec2,
-    "rds": _tag_rds,
-    "s3": _tag_s3,
+    "ec2":    _tag_ec2,
+    "rds":    _tag_rds,
+    "s3":     _tag_s3,
     "volume": _tag_volume,
 }
 
@@ -84,4 +114,9 @@ def run(args):
         args.id    — resource identifier
         args.set   — list[str], each "key=value"
     """
-    raise NotImplementedError("TODO: implement run() — see module docstring")
+    tags = _to_tags(args.set)
+    DISPATCH[args.type](args.id, tags)
+
+    # In xác nhận kết quả
+    tag_summary = ", ".join(f"{t['Key']}={t['Value']}" for t in tags)
+    print(f"Applied {len(tags)} tag(s) to {args.type} {args.id}: {tag_summary}")

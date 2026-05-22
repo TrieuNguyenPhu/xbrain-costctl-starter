@@ -66,4 +66,49 @@ def run(args):
         args.tag   — "key=value" string (REQUIRED)
         args.days  — int, default 7
     """
-    raise NotImplementedError("TODO: implement cost — see module docstring")
+    tag_key, tag_val = parse_kv(args.tag)
+
+    # ── Tính khoảng thời gian ──────────────────────────────────────────────────
+    end_date   = date.today()
+    start_date = end_date - timedelta(days=args.days)
+    start_str  = start_date.strftime("%Y-%m-%d")
+    end_str    = end_date.strftime("%Y-%m-%d")
+
+    # ── Gọi Cost Explorer ──────────────────────────────────────────────────────
+    ce = boto3.client("ce")
+    response = ce.get_cost_and_usage(
+        TimePeriod={"Start": start_str, "End": end_str},
+        Granularity="DAILY",
+        Metrics=["UnblendedCost"],
+        Filter={"Tags": {"Key": tag_key, "Values": [tag_val]}},
+        GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
+    )
+
+    # ── Tổng hợp chi phí theo service (cộng dồn nhiều ngày) ───────────────────
+    totals: dict[str, float] = defaultdict(float)
+    for day in response.get("ResultsByTime", []):
+        for group in day.get("Groups", []):
+            service = group["Keys"][0]
+            amount  = float(group["Metrics"]["UnblendedCost"]["Amount"])
+            totals[service] += amount
+
+    # ── Loại bỏ service có chi phí = 0 ────────────────────────────────────────
+    totals = {k: v for k, v in totals.items() if v > 0}
+
+    # ── In kết quả ────────────────────────────────────────────────────────────
+    separator = "-" * 62
+    print(f"Cost for {tag_key}={tag_val} over last {args.days} days "
+          f"({start_str} → {end_str}):")
+    print(separator)
+
+    if not totals:
+        print("  (no cost data found — cost data may lag 8–24h)")
+    else:
+        # Sắp xếp giảm dần theo chi phí
+        sorted_services = sorted(totals.items(), key=lambda x: x[1], reverse=True)
+        for service, amount in sorted_services:
+            print(f"  {service:<48}  ${amount:>8.2f}")
+
+    print(separator)
+    grand_total = sum(totals.values())
+    print(f"  {'TOTAL':<48}  ${grand_total:>8.2f}")
