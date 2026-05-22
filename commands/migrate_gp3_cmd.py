@@ -149,10 +149,10 @@ def run(args):
                 Iops=3000,       # baseline gp3, không tính thêm phí
                 Throughput=125,  # MiB/s, baseline gp3
             )
-            print(f"  → modify_volume issued for {vid} (gp3, 3000 IOPS, 125 MiB/s)")
+            print(f"  -> modify_volume issued for {vid} (gp3, 3000 IOPS, 125 MiB/s)")
             migrated += 1
         except Exception as e:
-            print(f"  ✗ Failed for {vid}: {e}")
+            print(f"  FAILED for {vid}: {e}")
 
-    print(f"\nVolume(s) entering 'modifying' → 'optimizing' state. App stays online.")
+    print(f"\nVolume(s) entering 'modifying' -> 'optimizing' state. App stays online.")
     print(f"Use `./costctl.py list volume` after ~30 minutes to confirm 'in-use' + gp3.")

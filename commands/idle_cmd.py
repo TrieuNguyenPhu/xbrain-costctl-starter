@@ -136,7 +136,7 @@ def run(args):
     print()
     if idle_ids:
         print(f"Idle: {len(idle_ids)} instance(s): {idle_ids}")
-        print(f"Tip: combo with terminate →  ./costctl.py terminate ec2 --id <id>")
+        print(f"Tip: combo with terminate ->  ./costctl.py terminate ec2 --id <id>")
     else:
         print(f"No idle instances found (threshold={args.threshold}% over {args.hours}h).")
         print(f"Tip: lower threshold to test path, e.g. --threshold 50 --hours 1")

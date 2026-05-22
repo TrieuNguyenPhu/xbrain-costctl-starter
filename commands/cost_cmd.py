@@ -98,7 +98,7 @@ def run(args):
     # ── In kết quả ────────────────────────────────────────────────────────────
     separator = "-" * 62
     print(f"Cost for {tag_key}={tag_val} over last {args.days} days "
-          f"({start_str} → {end_str}):")
+          f"({start_str} -> {end_str}):")
     print(separator)
 
     if not totals:
